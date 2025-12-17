@@ -8,6 +8,7 @@ import (
 	"social/internal/config"
 	handlers "social/internal/http"
 	comments_service "social/internal/service/comments"
+	followers_service "social/internal/service/followers"
 	post_service "social/internal/service/posts"
 	user_service "social/internal/service/users"
 	"social/internal/storage"
@@ -35,8 +36,9 @@ func main() {
 	usersService := user_service.New(&storage.Users)
 	postsService := post_service.New(&storage.Posts)
 	commentsService := comments_service.New(&storage.Comments)
+	followersService := followers_service.New(&storage.Followers)
 
-	handlers := handlers.New(usersService, postsService, commentsService)
+	handlers := handlers.New(usersService, postsService, commentsService, followersService)
 
 	app := app.New(config, handlers)
 

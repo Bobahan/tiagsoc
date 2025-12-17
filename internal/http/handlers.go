@@ -35,17 +35,24 @@ type CommentsService interface {
 	CreatePostComment(ctx context.Context, comment *entity.Comment) error
 }
 
-type HttpHandlers struct {
-	userService     UsersService
-	postsService    PostsService
-	commentsService CommentsService
+type FollowersService interface {
+	FollowUser(ctx context.Context, userId, followerId int64) error
+	UnfollowUser(ctx context.Context, userId, followerId int64) error
 }
 
-func New(usersService UsersService, postsService PostsService, commentsService CommentsService) http.Handler {
+type HttpHandlers struct {
+	userService      UsersService
+	postsService     PostsService
+	commentsService  CommentsService
+	followersService FollowersService
+}
+
+func New(usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
 	h := &HttpHandlers{
-		userService:     usersService,
-		postsService:    postsService,
-		commentsService: commentsService,
+		userService:      usersService,
+		postsService:     postsService,
+		commentsService:  commentsService,
+		followersService: followersService,
 	}
 
 	mux := mux.NewRouter()
@@ -60,7 +67,9 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 
 	// Users Router
 	usersRouter := muxSubrouter.PathPrefix("/users").Subrouter()
-	usersRouter.Path("/{id}").Methods("GET").HandlerFunc(h.handleGetUser)
+	usersRouter.Path("/{id}").Methods("GET").Handler(h.FetchUserMiddleware(h.handleGetUser))
+	usersRouter.Path("/{id}/follow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleFollowUser))
+	usersRouter.Path("/{id}/unfollow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleUnfollowUser))
 
 	// Posts Router
 	postsRouter := muxSubrouter.PathPrefix("/posts").Subrouter()
@@ -76,12 +85,33 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 func (h *HttpHandlers) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	getUuidFromCtx(r)
 
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
+	user := getUserFromCtx(r)
 
-	user, err := h.userService.Get(r.Context(), int64(id))
-	if err != nil {
+	if err := json.JsonResponse(w, http.StatusOK, user); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+}
+
+func (h *HttpHandlers) handleFollowUser(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromCtx(r) // id того user на которого мы хотим подписаться
+
+	// в будущем мы это будем доставать с ctx
+	var payload dto.FollowUserRequest // наш user_id
+
+	if err := json.ReadJson(w, r, &payload); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := json.Validate.Struct(payload); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.followersService.FollowUser(r.Context(), payload.UserId, user.Id); err != nil {
 		switch {
-		case errors.Is(err, postgresql.ErrorNotFound):
+		case errors.Is(err, postgresql.ErrorDuplicate):
 			json.WriteJsonError(w, http.StatusBadRequest, err.Error())
 		default:
 			json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
@@ -89,10 +119,31 @@ func (h *HttpHandlers) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := json.JsonResponse(w, http.StatusOK, user); err != nil {
+	json.JsonResponse(w, http.StatusNoContent, nil)
+}
+
+func (h *HttpHandlers) handleUnfollowUser(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromCtx(r) // id того user на которого мы хотим подписаться
+
+	// в будущем мы это будем доставать с ctx
+	var payload dto.FollowUserRequest // наш user_id
+
+	if err := json.ReadJson(w, r, &payload); err != nil {
 		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	if err := json.Validate.Struct(payload); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.followersService.UnfollowUser(r.Context(), payload.UserId, user.Id); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *HttpHandlers) handleCreatePost(w http.ResponseWriter, r *http.Request) {
@@ -266,4 +317,35 @@ func getUuidFromCtx(r *http.Request) {
 	if uuid, ok := r.Context().Value(middlewares.RequestIdKey).(string); ok {
 		pp.Printf("Обрабатывается запрос %s ", uuid)
 	}
+}
+
+// Middleware нужен для GetUser, FollowUser, UnfollowUser
+func (h *HttpHandlers) FetchUserMiddleware(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.Atoi(mux.Vars(r)["id"])
+
+		ctx := r.Context()
+
+		user, err := h.userService.Get(ctx, int64(id))
+
+		if err != nil {
+			switch {
+			case errors.Is(err, postgresql.ErrorNotFound):
+				json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+			default:
+				json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+
+		ctx = context.WithValue(ctx, middlewares.UserKey, user)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func getUserFromCtx(r *http.Request) *entity.User {
+	user, _ := r.Context().Value(middlewares.UserKey).(*entity.User)
+
+	return user
 }

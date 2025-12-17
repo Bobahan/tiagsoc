@@ -6,15 +6,17 @@ import (
 )
 
 type Storage struct {
-	Posts    repository.Posts
-	Users    repository.Users
-	Comments repository.Comments
+	Posts     repository.Posts
+	Users     repository.Users
+	Comments  repository.Comments
+	Followers repository.Followers
 }
 
 func New(db *sql.DB) *Storage {
 	return &Storage{
-		Posts:    *repository.PostRepository(db),
-		Users:    *repository.UserRepository(db),
-		Comments: *repository.CommentRepository(db),
+		Posts:     *repository.PostRepository(db),
+		Users:     *repository.UserRepository(db),
+		Comments:  *repository.CommentRepository(db),
+		Followers: *repository.FollowersRepository(db),
 	}
 }

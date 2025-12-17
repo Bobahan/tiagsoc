@@ -12,6 +12,7 @@ import (
 
 var (
 	ErrorNotFound        = errors.New("record not found")
+	ErrorDuplicate       = errors.New("you already have followed the user")
 	QueryTimeoutDuration = time.Second * 5
 )
 

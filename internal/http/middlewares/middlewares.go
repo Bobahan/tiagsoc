@@ -13,6 +13,7 @@ type contextKey string
 const (
 	RequestIdKey contextKey = "requestID"
 	PostKey      contextKey = "post"
+	UserKey      contextKey = "user"
 )
 
 func LoggingMiddleware(next http.Handler) http.Handler {
