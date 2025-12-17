@@ -118,3 +118,49 @@ func (p *Posts) Delete(ctx context.Context, id int64) error {
 
 	return nil
 }
+
+func (p *Posts) GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, error) {
+	query := `
+    SELECT p.id, p.title, p.content, p.user_id, p.version, u.username, p.tags, count(c.id) as comments_count 
+    FROM posts p 
+    LEFT JOIN "comments" c ON c.post_id = p.id
+    LEFT JOIN users u ON p.user_id = u.id 
+    JOIN followers f ON p.user_id = f.follower_id OR p.user_id = $1
+    WHERE f.user_id = $1 OR p.user_id = $1
+    GROUP BY p.id, u.username
+    ORDER BY p.created_at DESC
+  `
+
+	ctx, cancel := context.WithTimeout(ctx, postgresql.QueryTimeoutDuration)
+	defer cancel()
+
+	rows, err := p.db.QueryContext(ctx, query, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var feed entity.Feeds
+
+	for rows.Next() {
+		var post entity.Feed
+
+		if err := rows.Scan(
+			&post.Id,
+			&post.Title,
+			&post.Content,
+			&post.UserId,
+			&post.Version,
+			&post.User.Username,
+			pq.Array(&post.Tags),
+			&post.CommentCount,
+		); err != nil {
+			return nil, err
+		}
+
+		feed = append(feed, &post)
+	}
+
+	return &feed, nil
+}

@@ -28,6 +28,7 @@ type PostsService interface {
 	Get(ctx context.Context, id int64) (*entity.Post, error)
 	Delete(ctx context.Context, id int64) error
 	Update(ctx context.Context, post *entity.Post) error
+	GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, error)
 }
 
 type CommentsService interface {
@@ -67,6 +68,10 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 
 	// Users Router
 	usersRouter := muxSubrouter.PathPrefix("/users").Subrouter()
+
+	// userId текущего user будем доставать из сессии
+	usersRouter.Path("/feed").Methods("GET").HandlerFunc(h.handleUsersFeed)
+
 	usersRouter.Path("/{id}").Methods("GET").Handler(h.FetchUserMiddleware(h.handleGetUser))
 	usersRouter.Path("/{id}/follow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleFollowUser))
 	usersRouter.Path("/{id}/unfollow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleUnfollowUser))
@@ -80,6 +85,21 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 	postsRouter.Path("/{id}").Methods("PATCH").Handler(h.FetchPostMiddleware(h.handleUpdatePost))
 
 	return mux
+}
+
+func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
+	var userId int64 = 10 // я забираю самого себя
+
+	feed, err := h.postsService.GetUserFeed(r.Context(), userId)
+	if err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := json.JsonResponse(w, http.StatusOK, feed); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 }
 
 func (h *HttpHandlers) handleGetUser(w http.ResponseWriter, r *http.Request) {

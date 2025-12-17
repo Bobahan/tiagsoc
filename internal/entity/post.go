@@ -10,6 +10,7 @@ type Post struct {
 	UpdatedAt string    `json:"updated_at"`
 	Comments  *Comments `json:"comments"` // отношение
 	Version   int       `json:"version"`
+	User      User      `json:"user"`
 }
 
 type Posts []*Post
