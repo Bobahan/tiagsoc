@@ -1,0 +1,18 @@
+root = "."
+
+tmp_dir = "bin" 
+
+exclude_dir = ["bin", "vendor", "docs", "scripts"]
+
+[build]
+
+cmd = "go build -o ./bin/main ./cmd/social/main.go"
+
+bin = "./bin/main"
+
+full_bin = "./bin/main"
+
+color = true
+
+[run]
+watch_dir = ["."] 
