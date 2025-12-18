@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"social/internal/dto"
 	"social/internal/entity"
@@ -14,6 +15,10 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/k0kubun/pp"
+
+	_ "social/docs"
+
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 const (
@@ -58,6 +63,17 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 	}
 
 	mux := mux.NewRouter()
+
+	// init swagger
+	docsUrl := fmt.Sprintf("%s/swagger/doc.json", "http://localhost:8080") // по идее нужно получать с local.yaml конфиг файла
+
+	mux.PathPrefix("/swagger/").Handler(httpSwagger.Handler(
+		httpSwagger.URL(fmt.Sprintf("%s/swagger/doc.json", docsUrl)),
+		httpSwagger.DeepLinking(true),
+		httpSwagger.DocExpansion("none"),
+		httpSwagger.DomID("swagger-ui"),
+	)).Methods(http.MethodGet)
+
 	muxSubrouter := mux.PathPrefix("/v1").Subrouter()
 
 	// !!! Middleware применяются только к v1 !!!
@@ -121,6 +137,20 @@ func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetUser godoc
+//
+//	@Summary		Получить информацию о пользователе
+//	@Description	Возвращает данные текущего авторизованного пользователя
+//	@Tags			GetUser v1
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		int			true	"User Id"
+//	@Success		200	{object}	entity.User	"Успешный ответ с объектом пользователя"
+//	@Failure		400	{object}	error
+//	@Failure		404	{object}	error
+//	@Failure		500	{object}	error
+//	@Security		ApiKeyAuth
+//	@Router			/users/{id} [get]
 func (h *HttpHandlers) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	getUuidFromCtx(r)
 

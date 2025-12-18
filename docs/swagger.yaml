@@ -1,0 +1,67 @@
+basePath: /v1
+definitions:
+  entity.Follower:
+    properties:
+      follower_id:
+        type: integer
+      user_id:
+        type: integer
+    type: object
+  entity.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      followers:
+        description: отношение
+        items:
+          $ref: '#/definitions/entity.Follower'
+        type: array
+      id:
+        type: integer
+      username:
+        type: string
+    type: object
+info:
+  contact: {}
+  title: Social App API
+paths:
+  /users/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Возвращает данные текущего авторизованного пользователя
+      parameters:
+      - description: User Id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный ответ с объектом пользователя
+          schema:
+            $ref: '#/definitions/entity.User'
+        "400":
+          description: Bad Request
+          schema: {}
+        "404":
+          description: Not Found
+          schema: {}
+        "500":
+          description: Internal Server Error
+          schema: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Получить информацию о пользователе
+      tags:
+      - GetUser v1
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

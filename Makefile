@@ -41,3 +41,7 @@ revert-last_migration:
 .PHONY: seed-database
 seed-database:
 	CONFIG_PATH=./config/local.yaml go run ./migrations/seed/main.go
+
+.PHONY: swag
+swag:
+	swag init -g ./cmd/social/main.go && swag fmt

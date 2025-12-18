@@ -20,6 +20,13 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// @title						Social App API
+// @BasePath					/v1
+//
+// @securityDefinitions.apiKey	ApiKeyAuth
+// @in							header
+// @name						Authorization
+// @description
 func main() {
 	config := config.New()
 
