@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"social/internal/entity"
+	"social/internal/service"
 	"social/internal/storage/postgresql"
 
 	"github.com/lib/pq"
@@ -119,7 +120,7 @@ func (p *Posts) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (p *Posts) GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, error) {
+func (p *Posts) GetUserFeed(ctx context.Context, userId int64, pagination *service.Pagination) (*entity.Feeds, error) {
 	query := `
     SELECT p.id, p.title, p.content, p.user_id, p.version, u.username, p.tags, count(c.id) as comments_count 
     FROM posts p 
@@ -128,13 +129,14 @@ func (p *Posts) GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, e
     JOIN followers f ON p.user_id = f.follower_id OR p.user_id = $1
     WHERE f.user_id = $1 OR p.user_id = $1
     GROUP BY p.id, u.username
-    ORDER BY p.created_at DESC
+    ORDER BY p.created_at ` + pagination.Sort + `
+    LIMIT $2 OFFSET $3
   `
 
 	ctx, cancel := context.WithTimeout(ctx, postgresql.QueryTimeoutDuration)
 	defer cancel()
 
-	rows, err := p.db.QueryContext(ctx, query, userId)
+	rows, err := p.db.QueryContext(ctx, query, userId, pagination.Limit, pagination.Offset)
 	if err != nil {
 		return nil, err
 	}

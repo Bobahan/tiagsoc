@@ -8,6 +8,7 @@ import (
 	"social/internal/entity"
 	"social/internal/http/json"
 	"social/internal/http/middlewares"
+	"social/internal/service"
 	"social/internal/storage/postgresql"
 	"strconv"
 
@@ -28,7 +29,7 @@ type PostsService interface {
 	Get(ctx context.Context, id int64) (*entity.Post, error)
 	Delete(ctx context.Context, id int64) error
 	Update(ctx context.Context, post *entity.Post) error
-	GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, error)
+	GetUserFeed(ctx context.Context, userId int64, pagination *service.Pagination) (*entity.Feeds, error)
 }
 
 type CommentsService interface {
@@ -88,9 +89,26 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 }
 
 func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
+	pagination := service.Pagination{
+		Limit:  10,
+		Offset: 0,
+		Sort:   "desc",
+	}
+
+	parsedPagination, err := pagination.Parse(r)
+	if err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := json.Validate.Struct(parsedPagination); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	var userId int64 = 10 // я забираю самого себя
 
-	feed, err := h.postsService.GetUserFeed(r.Context(), userId)
+	feed, err := h.postsService.GetUserFeed(r.Context(), userId, parsedPagination)
 	if err != nil {
 		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -3,6 +3,7 @@ package post_service
 import (
 	"context"
 	"social/internal/entity"
+	"social/internal/service"
 )
 
 type PostRepository interface {
@@ -10,7 +11,7 @@ type PostRepository interface {
 	GetById(ctx context.Context, id int64) (*entity.Post, error)
 	Delete(ctx context.Context, id int64) error
 	Update(ctx context.Context, post *entity.Post) error
-	GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, error)
+	GetUserFeed(ctx context.Context, userId int64, pagination *service.Pagination) (*entity.Feeds, error)
 }
 
 type PostsService struct {
@@ -57,8 +58,8 @@ func (p *PostsService) Update(ctx context.Context, post *entity.Post) error {
 	return nil
 }
 
-func (p *PostsService) GetUserFeed(ctx context.Context, userId int64) (*entity.Feeds, error) {
-	posts, err := p.postRepository.GetUserFeed(ctx, userId)
+func (p *PostsService) GetUserFeed(ctx context.Context, userId int64, pagination *service.Pagination) (*entity.Feeds, error) {
+	posts, err := p.postRepository.GetUserFeed(ctx, userId, pagination)
 
 	if err != nil {
 		return nil, err
