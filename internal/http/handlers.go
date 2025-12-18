@@ -90,9 +90,10 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 
 func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
 	pagination := service.Pagination{
-		Limit:  10,
+		Limit:  2,
 		Offset: 0,
 		Sort:   "desc",
+		Search: "",
 	}
 
 	parsedPagination, err := pagination.Parse(r)

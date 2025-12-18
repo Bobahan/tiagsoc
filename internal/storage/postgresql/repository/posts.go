@@ -127,7 +127,7 @@ func (p *Posts) GetUserFeed(ctx context.Context, userId int64, pagination *servi
     LEFT JOIN "comments" c ON c.post_id = p.id
     LEFT JOIN users u ON p.user_id = u.id 
     JOIN followers f ON p.user_id = f.follower_id OR p.user_id = $1
-    WHERE f.user_id = $1 OR p.user_id = $1
+    WHERE (f.user_id = $1 OR p.user_id = $1) AND (p.title ILIKE $4 OR p.content ILIKE $4)
     GROUP BY p.id, u.username
     ORDER BY p.created_at ` + pagination.Sort + `
     LIMIT $2 OFFSET $3
@@ -136,7 +136,14 @@ func (p *Posts) GetUserFeed(ctx context.Context, userId int64, pagination *servi
 	ctx, cancel := context.WithTimeout(ctx, postgresql.QueryTimeoutDuration)
 	defer cancel()
 
-	rows, err := p.db.QueryContext(ctx, query, userId, pagination.Limit, pagination.Offset)
+	rows, err := p.db.QueryContext(
+		ctx,
+		query,
+		userId,
+		pagination.Limit,
+		pagination.Offset,
+		pagination.Search+"%",
+	)
 	if err != nil {
 		return nil, err
 	}
