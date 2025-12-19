@@ -14,7 +14,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
-	"github.com/k0kubun/pp"
+	"go.uber.org/zap"
 
 	_ "social/docs"
 
@@ -48,14 +48,16 @@ type FollowersService interface {
 }
 
 type HttpHandlers struct {
+	logger           *zap.SugaredLogger
 	userService      UsersService
 	postsService     PostsService
 	commentsService  CommentsService
 	followersService FollowersService
 }
 
-func New(usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
+func New(logger *zap.SugaredLogger, usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
 	h := &HttpHandlers{
+		logger:           logger,
 		userService:      usersService,
 		postsService:     postsService,
 		commentsService:  commentsService,
@@ -77,8 +79,10 @@ func New(usersService UsersService, postsService PostsService, commentsService C
 	muxSubrouter := mux.PathPrefix("/v1").Subrouter()
 
 	// !!! Middleware применяются только к v1 !!!
-	muxSubrouter.Use(middlewares.LoggingMiddleware)
+	middlewares := middlewares.New(h.logger)
+
 	muxSubrouter.Use(middlewares.RequestIdMiddleware)
+	muxSubrouter.Use(middlewares.LoggingMiddleware)
 
 	// Health Router
 	muxSubrouter.Path("/health").Methods("GET").HandlerFunc(h.handleHealth)
@@ -152,8 +156,6 @@ func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
 //	@Security		ApiKeyAuth
 //	@Router			/users/{id} [get]
 func (h *HttpHandlers) handleGetUser(w http.ResponseWriter, r *http.Request) {
-	getUuidFromCtx(r)
-
 	user := getUserFromCtx(r)
 
 	if err := json.JsonResponse(w, http.StatusOK, user); err != nil {
@@ -216,8 +218,6 @@ func (h *HttpHandlers) handleUnfollowUser(w http.ResponseWriter, r *http.Request
 }
 
 func (h *HttpHandlers) handleCreatePost(w http.ResponseWriter, r *http.Request) {
-	getUuidFromCtx(r)
-
 	var payload dto.CreatePostRequest
 
 	if err := json.ReadJson(w, r, &payload); err != nil {
@@ -252,7 +252,6 @@ func (h *HttpHandlers) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *HttpHandlers) handleGetPost(w http.ResponseWriter, r *http.Request) {
-	getUuidFromCtx(r)
 	post := getPostFromCtx(r)
 
 	comments, err := h.commentsService.GetPostComments(r.Context(), post.Id)
@@ -270,7 +269,6 @@ func (h *HttpHandlers) handleGetPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HttpHandlers) handleDeletePost(w http.ResponseWriter, r *http.Request) {
-	getUuidFromCtx(r)
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
 
 	if err := h.postsService.Delete(r.Context(), int64(id)); err != nil {
@@ -287,7 +285,6 @@ func (h *HttpHandlers) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *HttpHandlers) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
-	getUuidFromCtx(r)
 	post := getPostFromCtx(r)
 
 	var payload dto.UpdatePostRequest
@@ -330,7 +327,6 @@ func (h *HttpHandlers) handleUpdatePost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *HttpHandlers) handleHealth(w http.ResponseWriter, r *http.Request) {
-	getUuidFromCtx(r)
 	payload := map[string]string{
 		"status":  "ok",
 		"version": version,
@@ -380,12 +376,6 @@ func getPostFromCtx(r *http.Request) *entity.Post {
 	post, _ := r.Context().Value(middlewares.PostKey).(*entity.Post)
 
 	return post
-}
-
-func getUuidFromCtx(r *http.Request) {
-	if uuid, ok := r.Context().Value(middlewares.RequestIdKey).(string); ok {
-		pp.Printf("Обрабатывается запрос %s ", uuid)
-	}
 }
 
 // Middleware нужен для GetUser, FollowUser, UnfollowUser

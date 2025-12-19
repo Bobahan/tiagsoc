@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/k0kubun/pp"
 	_ "github.com/mattn/go-sqlite3"
+	"go.uber.org/zap"
 )
 
 // @title						Social App API
@@ -30,12 +30,15 @@ import (
 func main() {
 	config := config.New()
 
+	logger := zap.Must(zap.NewProduction()).Sugar() // sugarizing logger
+	defer logger.Sync()
+
 	sql, err := postgresql.New(config)
 	if err != nil {
-		pp.Fatal("failed to connect to the database: ", err.Error())
+		logger.Fatal("failed to connect to the database: ", err.Error())
 	}
 
-	pp.Println("database connection established")
+	logger.Info("database connection established")
 	defer sql.Close()
 
 	storage := storage.New(sql)
@@ -45,9 +48,9 @@ func main() {
 	commentsService := comments_service.New(&storage.Comments)
 	followersService := followers_service.New(&storage.Followers)
 
-	handlers := handlers.New(usersService, postsService, commentsService, followersService)
+	handlers := handlers.New(logger, usersService, postsService, commentsService, followersService)
 
-	app := app.New(config, handlers)
+	app := app.New(config, logger, handlers)
 
 	serverErrors := make(chan error, 1)
 
@@ -60,15 +63,15 @@ func main() {
 
 	select {
 	case err := <-serverErrors:
-		pp.Fatal("Server error: ", err.Error())
+		logger.Fatal("Server error: ", err.Error())
 	case <-signalChan:
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 		defer cancel()
 
 		if err := app.Stop(ctx); err != nil {
-			pp.Fatal("Graceful shutdown failed: ", err)
+			logger.Fatal("Graceful shutdown failed: ", err)
 		}
 	}
 
-	pp.Println("Application shutdown correctly")
+	logger.Info("Application shutdown correctly")
 }

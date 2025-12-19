@@ -2,10 +2,10 @@ package middlewares
 
 import (
 	"context"
-	"log"
 	"net/http"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 type contextKey string
@@ -16,14 +16,24 @@ const (
 	UserKey      contextKey = "user"
 )
 
-func LoggingMiddleware(next http.Handler) http.Handler {
+type MiddlewareManager struct {
+	logger *zap.SugaredLogger
+}
+
+func New(logger *zap.SugaredLogger) *MiddlewareManager {
+	return &MiddlewareManager{logger}
+}
+
+func (m *MiddlewareManager) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("request %s, %s", r.Method, r.RequestURI)
+		uuid, _ := r.Context().Value(RequestIdKey).(string)
+
+		m.logger.Info("request", " method: ", r.Method, " requestURI: ", r.RequestURI, " request UUID: ", uuid)
 		next.ServeHTTP(w, r)
 	})
 }
 
-func RequestIdMiddleware(next http.Handler) http.Handler {
+func (m *MiddlewareManager) RequestIdMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uuid := uuid.New().String()
 

@@ -5,18 +5,20 @@ import (
 	"net/http"
 	"social/internal/config"
 
-	"github.com/k0kubun/pp"
+	"go.uber.org/zap"
 )
 
 type application struct {
 	config  *config.Config
 	server  *http.Server
 	handler http.Handler
+	logger  *zap.SugaredLogger
 }
 
-func New(config *config.Config, handler http.Handler) *application {
+func New(config *config.Config, logger *zap.SugaredLogger, handler http.Handler) *application {
 	return &application{
 		config:  config,
+		logger:  logger,
 		handler: handler,
 	}
 }
@@ -30,7 +32,7 @@ func (app *application) Run() error {
 		IdleTimeout:  app.config.IdleTimeout,
 	}
 
-	pp.Printf("Server has started at %s ", app.config.Address)
+	app.logger.Infow("Server has been started", "addr", app.config.Address, "env:", app.config.Env)
 	if err := app.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -39,13 +41,13 @@ func (app *application) Run() error {
 }
 
 func (app *application) Stop(ctx context.Context) error {
-	pp.Println("Graceful shutdown is starting...")
+	app.logger.Info("Graceful shutdown is starting...")
 
 	if err := app.server.Shutdown(ctx); err != nil {
-		pp.Printf("Failed to shutdown server: %v\n", err)
+		app.logger.Infof("Failed to shutdown server: %v\n", err)
 		return err
 	}
 
-	pp.Println("Server was successfully stopped")
+	app.logger.Info("Server was successfully stopped")
 	return nil
 }
