@@ -15,10 +15,11 @@ type Config struct {
 }
 
 type HttpServer struct {
-	Address      string        `yaml:"address"`
-	ReadTimeout  time.Duration `yaml:"read_timeout"`
-	WriteTimeout time.Duration `yaml:"write_timeout"`
-	IdleTimeout  time.Duration `yaml:"idle_timeout"`
+	Address                string        `yaml:"address"`
+	ReadTimeout            time.Duration `yaml:"read_timeout"`
+	WriteTimeout           time.Duration `yaml:"write_timeout"`
+	IdleTimeout            time.Duration `yaml:"idle_timeout"`
+	MailInvitationExpired time.Duration `yaml:"mail_invitation_exp"`
 }
 
 type Database struct {

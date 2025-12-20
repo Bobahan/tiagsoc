@@ -11,9 +11,11 @@ import (
 )
 
 var (
-	ErrorNotFound        = errors.New("record not found")
-	ErrorDuplicate       = errors.New("you already have followed the user")
-	QueryTimeoutDuration = time.Second * 5
+	ErrorNotFound          = errors.New("record not found")
+	ErrorDuplicate         = errors.New("you already have followed the user")
+	ErrorDuplicateEmail    = errors.New("duplicate email")
+	ErrorDuplicateUsername = errors.New("duplicate username")
+	QueryTimeoutDuration   = time.Second * 5
 )
 
 func New(config *config.Config) (*sql.DB, error) {
@@ -38,4 +40,18 @@ func New(config *config.Config) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func WithTransaction(db *sql.DB, ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback() // если происходит ошибка откатываемся
+		return err
+	}
+
+	return tx.Commit()
 }

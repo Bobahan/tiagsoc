@@ -48,7 +48,7 @@ func main() {
 	commentsService := comments_service.New(&storage.Comments)
 	followersService := followers_service.New(&storage.Followers)
 
-	handlers := handlers.New(logger, usersService, postsService, commentsService, followersService)
+	handlers := handlers.New(logger, config, usersService, postsService, commentsService, followersService)
 
 	app := app.New(config, logger, handlers)
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"social/internal/config"
 	"social/internal/dto"
 	"social/internal/entity"
 	"social/internal/http/json"
@@ -12,7 +13,9 @@ import (
 	"social/internal/service"
 	"social/internal/storage/postgresql"
 	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 
@@ -26,7 +29,9 @@ const (
 )
 
 type UsersService interface {
-	Get(ctx context.Context, id int64) (*entity.User, error)
+	GetUser(ctx context.Context, id int64) (*entity.User, error)
+	RegisterUser(ctx context.Context, user *entity.User, token string, exp time.Duration) error
+	ActivateUser(ctx context.Context, token string) error
 }
 
 type PostsService interface {
@@ -49,15 +54,17 @@ type FollowersService interface {
 
 type HttpHandlers struct {
 	logger           *zap.SugaredLogger
+	config           *config.Config
 	userService      UsersService
 	postsService     PostsService
 	commentsService  CommentsService
 	followersService FollowersService
 }
 
-func New(logger *zap.SugaredLogger, usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
+func New(logger *zap.SugaredLogger, config *config.Config, usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
 	h := &HttpHandlers{
 		logger:           logger,
+		config:           config,
 		userService:      usersService,
 		postsService:     postsService,
 		commentsService:  commentsService,
@@ -105,7 +112,84 @@ func New(logger *zap.SugaredLogger, usersService UsersService, postsService Post
 	postsRouter.Path("/{id}").Methods("GET").Handler(h.FetchPostMiddleware(h.handleGetPost))
 	postsRouter.Path("/{id}").Methods("PATCH").Handler(h.FetchPostMiddleware(h.handleUpdatePost))
 
+	// Регистрация пользователя, public routes
+	authRouter := muxSubrouter.PathPrefix("/authentication").Subrouter()
+	authRouter.Path("/user").Methods("POST").HandlerFunc(h.handleRegisterUser)
+	authRouter.Path("/activate/{token}").Methods("PUT").HandlerFunc(h.handleActivateUser)
+
 	return mux
+}
+
+func (h *HttpHandlers) handleActivateUser(w http.ResponseWriter, r *http.Request) {
+	// ourToken := "582e9648-e82e-4d15-866d-490da4e78383"
+
+	token := mux.Vars(r)["token"]
+
+	if err := h.userService.ActivateUser(r.Context(), token); err != nil {
+		switch {
+		case errors.Is(err, postgresql.ErrorNotFound):
+			json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		default:
+			json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		}
+
+		return
+	}
+
+	if err := json.JsonResponse(w, http.StatusNoContent, nil); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+}
+
+func (h *HttpHandlers) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
+	var payload dto.RegisterUserPayload
+
+	if err := json.ReadJson(w, r, &payload); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := json.Validate.Struct(payload); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	user := &entity.User{
+		Username: payload.Username,
+		Email:    payload.Email,
+	}
+
+	if err := user.Password.Set(payload.Password); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	uuid := uuid.New().String()
+
+	if err := h.userService.RegisterUser(r.Context(), user, uuid, h.config.MailInvitationExpired); err != nil {
+		// не получилось зарегистрироваться
+		switch {
+		case errors.Is(err, postgresql.ErrorDuplicateEmail):
+			json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, postgresql.ErrorDuplicateUsername):
+			json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		default:
+			json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		}
+
+		return
+	}
+
+	userWithToken := dto.UserWithToken{
+		User:  user,
+		Token: uuid,
+	}
+
+	if err := json.JsonResponse(w, http.StatusCreated, userWithToken); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 }
 
 func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +469,7 @@ func (h *HttpHandlers) FetchUserMiddleware(next http.HandlerFunc) http.Handler {
 
 		ctx := r.Context()
 
-		user, err := h.userService.Get(ctx, int64(id))
+		user, err := h.userService.GetUser(ctx, int64(id))
 
 		if err != nil {
 			switch {

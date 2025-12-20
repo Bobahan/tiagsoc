@@ -1,4 +1,5 @@
 env: "local"
+mail_invitation_exp: 3d
 http_server:
   address: "localhost:8080"
   read_timeout: 4s
