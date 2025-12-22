@@ -12,6 +12,7 @@ type Repository interface {
 	GetById(ctx context.Context, id int64) (*entity.User, error)
 	CreateAndInvite(ctx context.Context, user *entity.User, token string, exp time.Duration) error // создает user в таблице users и user_invitation
 	Activate(ctx context.Context, token string) error
+	Delete(ctx context.Context, userId int64) error
 }
 
 type UsersService struct {
@@ -46,5 +47,9 @@ func (u *UsersService) ActivateUser(ctx context.Context, token string) error {
 		return err
 	}
 
+	return nil
+}
+
+func (u *UsersService) Delete(ctx context.Context, userId int64) error {
 	return nil
 }

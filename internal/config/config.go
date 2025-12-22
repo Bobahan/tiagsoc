@@ -15,11 +15,13 @@ type Config struct {
 }
 
 type HttpServer struct {
-	Address                string        `yaml:"address"`
-	ReadTimeout            time.Duration `yaml:"read_timeout"`
-	WriteTimeout           time.Duration `yaml:"write_timeout"`
-	IdleTimeout            time.Duration `yaml:"idle_timeout"`
+	Address               string        `yaml:"address"`
+	ReadTimeout           time.Duration `yaml:"read_timeout"`
+	WriteTimeout          time.Duration `yaml:"write_timeout"`
+	IdleTimeout           time.Duration `yaml:"idle_timeout"`
 	MailInvitationExpired time.Duration `yaml:"mail_invitation_exp"`
+	Mail                  Mail          `yaml:"mail"`
+	FrontUrl              string        `yaml:front_url`
 }
 
 type Database struct {
@@ -27,6 +29,11 @@ type Database struct {
 	MaxOpenConnections int           `yaml:"max_open_connections"`
 	MaxIdleConnections int           `yaml:"max_idle_connections"`
 	MaxIdleTime        time.Duration `yaml:"max_idle_time"`
+}
+
+type Mail struct {
+	From   string `yaml:"from"`
+	ApiKey string `yaml:"api_key"`
 }
 
 func New() *Config {

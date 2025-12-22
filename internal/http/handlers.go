@@ -10,6 +10,7 @@ import (
 	"social/internal/entity"
 	"social/internal/http/json"
 	"social/internal/http/middlewares"
+	"social/internal/mailer"
 	"social/internal/service"
 	"social/internal/storage/postgresql"
 	"strconv"
@@ -32,6 +33,7 @@ type UsersService interface {
 	GetUser(ctx context.Context, id int64) (*entity.User, error)
 	RegisterUser(ctx context.Context, user *entity.User, token string, exp time.Duration) error
 	ActivateUser(ctx context.Context, token string) error
+	Delete(ctx context.Context, userId int64) error
 }
 
 type PostsService interface {
@@ -53,6 +55,7 @@ type FollowersService interface {
 }
 
 type HttpHandlers struct {
+	mailer           mailer.Client
 	logger           *zap.SugaredLogger
 	config           *config.Config
 	userService      UsersService
@@ -61,8 +64,9 @@ type HttpHandlers struct {
 	followersService FollowersService
 }
 
-func New(logger *zap.SugaredLogger, config *config.Config, usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
+func New(mailer mailer.Client, logger *zap.SugaredLogger, config *config.Config, usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
 	h := &HttpHandlers{
+		mailer:           mailer,
 		logger:           logger,
 		config:           config,
 		userService:      usersService,
@@ -184,6 +188,30 @@ func (h *HttpHandlers) handleRegisterUser(w http.ResponseWriter, r *http.Request
 	userWithToken := dto.UserWithToken{
 		User:  user,
 		Token: uuid,
+	}
+
+	activationUrl := fmt.Sprintf("%s/confirm/%s", h.config.FrontUrl, userWithToken.Token)
+
+	isProdEnv := h.config.Env == "production"
+
+	vars := struct {
+		Username   string
+		Activation string
+	}{
+		Username:   user.Username,
+		Activation: activationUrl,
+	}
+
+	if err := h.mailer.Send(mailer.UserWelcomeTemplate, user.Username, user.Email, vars, !isProdEnv); err != nil {
+		h.logger.Errorw("error sending welcome email", "error", err)
+
+		// rollback user creation if emails fails SAGA PATTERN
+		if err := h.userService.Delete(r.Context(), user.Id); err != nil {
+			h.logger.Errorw("error deleting error", "error", err)
+		}
+
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	if err := json.JsonResponse(w, http.StatusCreated, userWithToken); err != nil {

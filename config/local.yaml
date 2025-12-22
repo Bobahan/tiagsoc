@@ -1,5 +1,9 @@
-env: "local"
+env: "production" # local, test
 mail_invitation_exp: 3d
+mail: 
+  from: "bobahansem98@mail.ru"
+  api_key: "PIZDESH"
+front_url: "http://localhost:4000"
 http_server:
   address: "localhost:8080"
   read_timeout: 4s

@@ -113,6 +113,33 @@ func (u *Users) Activate(ctx context.Context, token string) error {
 	})
 }
 
+func (u *Users) Delete(ctx context.Context, userId int64) error {
+	return postgresql.WithTransaction(u.db, ctx, func(tx *sql.Tx) error {
+		if err := u.delete(ctx, tx, userId); err != nil {
+			return err
+		}
+
+		if err := u.deleteInvitation(ctx, tx, userId); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (u *Users) delete(ctx context.Context, tx *sql.Tx, userId int64) error {
+	query := `DELETE FROM users WHERE id = $1`
+
+	ctx, cancel := context.WithTimeout(ctx, postgresql.QueryTimeoutDuration)
+	defer cancel()
+
+	if _, err := tx.ExecContext(ctx, query, userId); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (u *Users) createTx(ctx context.Context, tx *sql.Tx, user *entity.User) error {
 	query := `INSERT INTO users (username, password, email) VALUES($1, $2, $3) RETURNING id, created_at`
 
