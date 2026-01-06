@@ -9,15 +9,19 @@ import (
 	"social/internal/dto"
 	"social/internal/entity"
 	"social/internal/http/json"
+	"social/internal/http/jwt"
 	"social/internal/http/middlewares"
 	"social/internal/mailer"
 	"social/internal/service"
 	"social/internal/storage/postgresql"
+	cache "social/internal/storage/redis"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
+	"github.com/k0kubun/pp"
 	"go.uber.org/zap"
 
 	_ "social/docs"
@@ -31,6 +35,7 @@ const (
 
 type UsersService interface {
 	GetUser(ctx context.Context, id int64) (*entity.User, error)
+	GetByEmail(ctx context.Context, email string) (*entity.User, error)
 	RegisterUser(ctx context.Context, user *entity.User, token string, exp time.Duration) error
 	ActivateUser(ctx context.Context, token string) error
 	Delete(ctx context.Context, userId int64) error
@@ -54,7 +59,13 @@ type FollowersService interface {
 	UnfollowUser(ctx context.Context, userId, followerId int64) error
 }
 
+type RolesService interface {
+	GetByName(ctx context.Context, roleName string) (*entity.Role, error)
+}
+
 type HttpHandlers struct {
+	redis            cache.Storage
+	store            *sessions.CookieStore
 	mailer           mailer.Client
 	logger           *zap.SugaredLogger
 	config           *config.Config
@@ -62,10 +73,25 @@ type HttpHandlers struct {
 	postsService     PostsService
 	commentsService  CommentsService
 	followersService FollowersService
+	rolesService     RolesService
 }
 
-func New(mailer mailer.Client, logger *zap.SugaredLogger, config *config.Config, usersService UsersService, postsService PostsService, commentsService CommentsService, followersService FollowersService) http.Handler {
+func New(
+	redis cache.Storage,
+	store *sessions.CookieStore,
+	mailer mailer.Client,
+	logger *zap.SugaredLogger,
+	config *config.Config,
+	usersService UsersService,
+	postsService PostsService,
+	commentsService CommentsService,
+	followersService FollowersService,
+	rolesService RolesService,
+
+) http.Handler {
 	h := &HttpHandlers{
+		redis:            redis,
+		store:            store,
 		mailer:           mailer,
 		logger:           logger,
 		config:           config,
@@ -73,6 +99,7 @@ func New(mailer mailer.Client, logger *zap.SugaredLogger, config *config.Config,
 		postsService:     postsService,
 		commentsService:  commentsService,
 		followersService: followersService,
+		rolesService:     rolesService,
 	}
 
 	mux := mux.NewRouter()
@@ -98,23 +125,24 @@ func New(mailer mailer.Client, logger *zap.SugaredLogger, config *config.Config,
 	// Health Router
 	muxSubrouter.Path("/health").Methods("GET").HandlerFunc(h.handleHealth)
 
-	// Users Router
-	usersRouter := muxSubrouter.PathPrefix("/users").Subrouter()
+	usersPublicRouter := muxSubrouter.PathPrefix("/users").Subrouter()
+	usersPublicRouter.Path("/login").Methods("POST").HandlerFunc(h.handleLoginUser)
 
-	// userId текущего user будем доставать из сессии
-	usersRouter.Path("/feed").Methods("GET").HandlerFunc(h.handleUsersFeed)
-
-	usersRouter.Path("/{id}").Methods("GET").Handler(h.FetchUserMiddleware(h.handleGetUser))
-	usersRouter.Path("/{id}/follow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleFollowUser))
-	usersRouter.Path("/{id}/unfollow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleUnfollowUser))
+	usersPrivateRouter := usersPublicRouter.PathPrefix("").Subrouter()
+	usersPrivateRouter.Use(h.AuthMiddleware)
+	usersPrivateRouter.Path("/feed").Methods("GET").HandlerFunc(h.handleUsersFeed)
+	usersPrivateRouter.Path("/{id}").Methods("GET").Handler(h.FetchUserMiddleware(h.handleGetUser))
+	usersPrivateRouter.Path("/{id}/follow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleFollowUser))
+	usersPrivateRouter.Path("/{id}/unfollow").Methods("PUT").Handler(h.FetchUserMiddleware(h.handleUnfollowUser))
 
 	// Posts Router
 	postsRouter := muxSubrouter.PathPrefix("/posts").Subrouter()
-	postsRouter.Path("/").Methods("POST").HandlerFunc(h.handleCreatePost)
-	postsRouter.Path("/{id}").Methods("DELETE").HandlerFunc(h.handleDeletePost)
-
-	postsRouter.Path("/{id}").Methods("GET").Handler(h.FetchPostMiddleware(h.handleGetPost))
-	postsRouter.Path("/{id}").Methods("PATCH").Handler(h.FetchPostMiddleware(h.handleUpdatePost))
+	postsRouter.Use(h.AuthMiddleware)
+	postsRouter.Use(h.FetchPostMiddleware)
+	postsRouter.Path("").Methods("POST").HandlerFunc(h.handleCreatePost)
+	postsRouter.Path("/{id}").Methods("DELETE").Handler(h.CheckPostPermissionMiddleware("admin", h.handleDeletePost))
+	postsRouter.Path("/{id}").Methods("GET").HandlerFunc(h.handleGetPost)
+	postsRouter.Path("/{id}").Methods("PATCH").Handler(h.CheckPostPermissionMiddleware("moderator", h.handleUpdatePost))
 
 	// Регистрация пользователя, public routes
 	authRouter := muxSubrouter.PathPrefix("/authentication").Subrouter()
@@ -122,6 +150,60 @@ func New(mailer mailer.Client, logger *zap.SugaredLogger, config *config.Config,
 	authRouter.Path("/activate/{token}").Methods("PUT").HandlerFunc(h.handleActivateUser)
 
 	return mux
+}
+
+func (h *HttpHandlers) handleLoginUser(w http.ResponseWriter, r *http.Request) {
+	var payload dto.LoginUserPayload
+
+	if err := json.ReadJson(w, r, &payload); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := json.Validate.Struct(payload); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	user, err := h.userService.GetByEmail(r.Context(), payload.Email)
+	if err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := user.Password.Compare(payload.Password); err != nil {
+		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	token, err := jwt.CreateToken(user.Id)
+	if err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// 1. Получаем сессию (создается новая, если её нет)
+	session, _ := h.store.Get(r, "auth-session")
+
+	// 2. Устанавливаем настройки безопасности
+	session.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   3600, // время жизни в секундах (1 час)
+		HttpOnly: true, // защита от XSS
+		Secure:   true, // только для HTTPS
+		SameSite: http.SameSiteLaxMode,
+	}
+
+	// 3. Записываем токен в сессию
+	session.Values["access_token"] = token
+
+	// 4.Сохраняем сессию в куки
+	if err := session.Save(r, w); err != nil {
+		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *HttpHandlers) handleActivateUser(w http.ResponseWriter, r *http.Request) {
@@ -239,9 +321,9 @@ func (h *HttpHandlers) handleUsersFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userId int64 = 10 // я забираю самого себя
+	var user = r.Context().Value(middlewares.UserKey).(*entity.User) // я забираю самого себя
 
-	feed, err := h.postsService.GetUserFeed(r.Context(), userId, parsedPagination)
+	feed, err := h.postsService.GetUserFeed(r.Context(), user.Id, parsedPagination)
 	if err != nil {
 		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -277,22 +359,11 @@ func (h *HttpHandlers) handleGetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HttpHandlers) handleFollowUser(w http.ResponseWriter, r *http.Request) {
-	user := getUserFromCtx(r) // id того user на которого мы хотим подписаться
+	userToFollow := getUserFromCtx(r) // id того user на которого мы хотим подписаться
 
-	// в будущем мы это будем доставать с ctx
-	var payload dto.FollowUserRequest // наш user_id
+	var user = r.Context().Value(middlewares.UserKey).(*entity.User) // я забираю самого себя, наш user_id
 
-	if err := json.ReadJson(w, r, &payload); err != nil {
-		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if err := json.Validate.Struct(payload); err != nil {
-		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if err := h.followersService.FollowUser(r.Context(), payload.UserId, user.Id); err != nil {
+	if err := h.followersService.FollowUser(r.Context(), user.Id, userToFollow.Id); err != nil {
 		switch {
 		case errors.Is(err, postgresql.ErrorDuplicate):
 			json.WriteJsonError(w, http.StatusBadRequest, err.Error())
@@ -306,22 +377,11 @@ func (h *HttpHandlers) handleFollowUser(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *HttpHandlers) handleUnfollowUser(w http.ResponseWriter, r *http.Request) {
-	user := getUserFromCtx(r) // id того user на которого мы хотим подписаться
+	userToUnfollow := getUserFromCtx(r) // id того user с которого мы хотим отписаться
 
-	// в будущем мы это будем доставать с ctx
-	var payload dto.FollowUserRequest // наш user_id
+	var user = r.Context().Value(middlewares.UserKey).(*entity.User) // я забираю самого себя,  наш user_id
 
-	if err := json.ReadJson(w, r, &payload); err != nil {
-		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if err := json.Validate.Struct(payload); err != nil {
-		json.WriteJsonError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if err := h.followersService.UnfollowUser(r.Context(), payload.UserId, user.Id); err != nil {
+	if err := h.followersService.UnfollowUser(r.Context(), user.Id, userToUnfollow.Id); err != nil {
 		json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -343,10 +403,12 @@ func (h *HttpHandlers) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	var user = r.Context().Value(middlewares.UserKey).(*entity.User) // я забираю самого себя
+
 	post := entity.Post{
 		Content: payload.Content,
 		Title:   payload.Title,
-		UserId:  1, // TODO: after auth, it is just mock for now
+		UserId:  user.Id,
 		Tags:    payload.Tags,
 	}
 
@@ -421,6 +483,8 @@ func (h *HttpHandlers) handleUpdatePost(w http.ResponseWriter, r *http.Request) 
 
 	// time.Sleep(time.Second * 5) проверка на Race Condition
 
+	// var user = r.Context().Value(middlewares.UserKey).(*entity.User) // я забираю самого себя,  наш user_id
+
 	if err := h.postsService.Update(r.Context(), post); err != nil {
 		switch {
 		case errors.Is(err, postgresql.ErrorNotFound):
@@ -451,7 +515,7 @@ func (h *HttpHandlers) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // Middleware нужен для GetPost и для UpdatePost
-func (h *HttpHandlers) FetchPostMiddleware(next http.HandlerFunc) http.Handler {
+func (h *HttpHandlers) FetchPostMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
 
@@ -519,4 +583,111 @@ func getUserFromCtx(r *http.Request) *entity.User {
 	user, _ := r.Context().Value(middlewares.UserKey).(*entity.User)
 
 	return user
+}
+
+func (h *HttpHandlers) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Достаем сессию
+		session, _ := h.store.Get(r, "auth-session")
+
+		// Из сессии достаем access_token
+		token, ok := session.Values["access_token"].(string)
+		if !ok || token == "" {
+			json.WriteJsonError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+
+		// Валидация токена
+		claims, err := jwt.ExtractClaims(token)
+		if err != nil {
+			json.WriteJsonError(w, http.StatusUnauthorized, "Invalid token")
+			return
+		}
+
+		// После валидации достаем id пользователя который мы туда положили когда логинились
+		id, ok := claims["id"]
+		if !ok {
+			json.WriteJsonError(w, http.StatusUnauthorized, "Invalid token data")
+			return
+		}
+
+		// Конвертируем: сначала в float64 (как хранит JWT), затем в int64
+		floatId, ok := id.(float64)
+		if !ok {
+			json.WriteJsonError(w, http.StatusUnauthorized, "ID is not a number")
+			return
+		}
+
+		userId := int64(floatId)
+
+		user, err := h.getUser(r.Context(), userId)
+		if err != nil {
+			json.WriteJsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		pp.Println(user)
+
+		// Теперь кладем в контекст уже готовый int64
+		ctx := context.WithValue(r.Context(), middlewares.UserKey, user)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Мы должны быть залогинены прежде чем вызвать этот middleware
+func (h *HttpHandlers) CheckPostPermissionMiddleware(role string, next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := getUserFromCtx(r)
+		post := getPostFromCtx(r)
+
+		// проверка на то является пользователь автором
+		if post.UserId == user.Id {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		isAllowed, err := h.checkRolePermission(r.Context(), user, role)
+		if err != nil {
+			json.WriteJsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+
+		if !isAllowed {
+			json.WriteJsonError(w, http.StatusForbidden, "Forbidden")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *HttpHandlers) checkRolePermission(ctx context.Context, user *entity.User, roleName string) (bool, error) {
+	role, err := h.rolesService.GetByName(ctx, roleName)
+	if err != nil {
+		return false, err
+	}
+
+	return user.Role.Level >= role.Level, nil
+}
+
+func (h *HttpHandlers) getUser(ctx context.Context, userId int64) (*entity.User, error) {
+	user, err := h.redis.Get(ctx, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	if user == nil { // не смогли достать пользователя из кэша
+		// идем доставать из PostgreqSQL
+		user, err := h.userService.GetUser(ctx, userId) // Достаем user и кладем его в контекст, чтобы в других местах доставать его
+		if err != nil {
+			return nil, err
+		}
+
+		if err := h.redis.Set(ctx, user); err != nil {
+			return nil, err
+		}
+	}
+
+	return user, nil
 }

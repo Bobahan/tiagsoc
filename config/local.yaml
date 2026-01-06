@@ -1,6 +1,6 @@
 env: "production" # local, test
 mail_invitation_exp: 3d
-mail: 
+mail:
   from: "bobahansem98@mail.ru"
   api_key: "PIZDESH"
 front_url: "http://localhost:4000"
@@ -14,3 +14,7 @@ database:
   max_open_connections: 30
   max_idle_connections: 30
   max_idle_time: 15s
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0

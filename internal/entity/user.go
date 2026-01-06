@@ -10,11 +10,13 @@ type User struct {
 	CreatedAt string     `json:"created_at"`
 	IsActive  bool       `json:"is_active"`
 	Followers *Followers `json:"followers"` // отношение
+	RoleId    int64      `json:"role_id"`
+	Role      Role       `json:"role"` // отношение
 }
 
 type password struct {
-	text *string
-	hash []byte
+	Text *string
+	Hash []byte
 }
 
 func (p *password) Set(text string) error {
@@ -23,14 +25,18 @@ func (p *password) Set(text string) error {
 		return err
 	}
 
-	p.text = &text
-	p.hash = hashedPassword
+	p.Text = &text
+	p.Hash = hashedPassword
 
 	return nil
 }
 
 func (p *password) Get() string {
-	return string(p.hash)
+	return string(p.Hash)
+}
+
+func (p *password) Compare(text string) error {
+	return bcrypt.CompareHashAndPassword(p.Hash, []byte(text))
 }
 
 type Users []*User

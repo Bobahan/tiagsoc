@@ -12,6 +12,7 @@ type Config struct {
 	Env        string `yaml:"env"`
 	HttpServer `yaml:"http_server"`
 	Database   `yaml:"database"`
+	Redis      `yaml:"redis"`
 }
 
 type HttpServer struct {
@@ -29,6 +30,12 @@ type Database struct {
 	MaxOpenConnections int           `yaml:"max_open_connections"`
 	MaxIdleConnections int           `yaml:"max_idle_connections"`
 	MaxIdleTime        time.Duration `yaml:"max_idle_time"`
+}
+
+type Redis struct {
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
 type Mail struct {

@@ -20,7 +20,7 @@ func UserRepository(db *sql.DB) *Users {
 }
 
 func (u *Users) Create(ctx context.Context, user *entity.User) error {
-	query := `INSERT INTO users (username, password, email) VALUES($1, $2, $3) RETURNING id, created_at`
+	query := `INSERT INTO users (username, password, email, role_id) VALUES($1, $2, $3, $4) RETURNING id, created_at`
 
 	ctx, cancel := context.WithTimeout(ctx, postgresql.QueryTimeoutDuration)
 	defer cancel()
@@ -29,8 +29,9 @@ func (u *Users) Create(ctx context.Context, user *entity.User) error {
 		ctx,
 		query,
 		user.Username,
-		user.Password,
+		user.Password.Hash,
 		user.Email,
+		&user.RoleId,
 	).Scan(
 		&user.Id,
 		&user.CreatedAt,
@@ -42,7 +43,11 @@ func (u *Users) Create(ctx context.Context, user *entity.User) error {
 }
 
 func (u *Users) GetById(ctx context.Context, id int64) (*entity.User, error) {
-	query := `SELECT id, username, email, password, created_at FROM users WHERE id = $1`
+	query := `
+  SELECT users.id, username, email, password, created_at, roles.*
+  FROM users JOIN roles ON users.role_id = roles.id 
+  WHERE users.id = $1
+  `
 
 	var user entity.User
 
@@ -57,8 +62,12 @@ func (u *Users) GetById(ctx context.Context, id int64) (*entity.User, error) {
 		&user.Id,
 		&user.Username,
 		&user.Email,
-		&user.Password,
+		&user.Password.Hash,
 		&user.CreatedAt,
+		&user.Role.Id,
+		&user.Role.Name,
+		&user.Role.Level,
+		&user.Role.Description,
 	); err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -69,6 +78,36 @@ func (u *Users) GetById(ctx context.Context, id int64) (*entity.User, error) {
 	}
 
 	return &user, nil
+}
+
+func (u *Users) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	query := `SELECT id, username, email, password, created_at FROM users WHERE email = $1 AND is_active = true`
+
+	ctx, cancel := context.WithTimeout(ctx, postgresql.QueryTimeoutDuration)
+	defer cancel()
+
+	user := &entity.User{}
+
+	if err := u.db.QueryRowContext(
+		ctx,
+		query,
+		email,
+	).Scan(
+		&user.Id,
+		&user.Username,
+		&user.Email,
+		&user.Password.Hash,
+		&user.CreatedAt,
+	); err != nil {
+		switch err {
+		case sql.ErrNoRows:
+			return nil, postgresql.ErrorNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return user, nil
 }
 
 func (u *Users) CreateAndInvite(ctx context.Context, user *entity.User, token string, invitationExp time.Duration) error {

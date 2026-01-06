@@ -14,6 +14,7 @@ const (
 	RequestIdKey contextKey = "requestID"
 	PostKey      contextKey = "post"
 	UserKey      contextKey = "user"
+	UserId       contextKey = "user_id"
 )
 
 type MiddlewareManager struct {

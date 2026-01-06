@@ -10,6 +10,7 @@ type Storage struct {
 	Users     repository.Users
 	Comments  repository.Comments
 	Followers repository.Followers
+	Roles     repository.Roles
 }
 
 func New(db *sql.DB) *Storage {
@@ -18,5 +19,6 @@ func New(db *sql.DB) *Storage {
 		Users:     *repository.UserRepository(db),
 		Comments:  *repository.CommentRepository(db),
 		Followers: *repository.FollowersRepository(db),
+		Roles:     *repository.RolesRepository(db),
 	}
 }

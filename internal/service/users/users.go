@@ -10,6 +10,7 @@ import (
 type Repository interface {
 	Create(context.Context, *entity.User) error
 	GetById(ctx context.Context, id int64) (*entity.User, error)
+	GetByEmail(ctx context.Context, email string) (*entity.User, error)
 	CreateAndInvite(ctx context.Context, user *entity.User, token string, exp time.Duration) error // создает user в таблице users и user_invitation
 	Activate(ctx context.Context, token string) error
 	Delete(ctx context.Context, userId int64) error
@@ -52,4 +53,13 @@ func (u *UsersService) ActivateUser(ctx context.Context, token string) error {
 
 func (u *UsersService) Delete(ctx context.Context, userId int64) error {
 	return nil
+}
+
+func (u *UsersService) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	user, err := u.userRepository.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
