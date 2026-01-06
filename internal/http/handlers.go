@@ -12,6 +12,7 @@ import (
 	"social/internal/http/jwt"
 	"social/internal/http/middlewares"
 	"social/internal/mailer"
+	"social/internal/ratelimiter"
 	"social/internal/service"
 	"social/internal/storage/postgresql"
 	cache "social/internal/storage/redis"
@@ -64,6 +65,7 @@ type RolesService interface {
 }
 
 type HttpHandlers struct {
+	rateLimiter      ratelimiter.Limiter
 	redis            cache.Storage
 	store            *sessions.CookieStore
 	mailer           mailer.Client
@@ -77,6 +79,7 @@ type HttpHandlers struct {
 }
 
 func New(
+	rateLimiter ratelimiter.Limiter,
 	redis cache.Storage,
 	store *sessions.CookieStore,
 	mailer mailer.Client,
@@ -90,6 +93,7 @@ func New(
 
 ) http.Handler {
 	h := &HttpHandlers{
+		rateLimiter:      rateLimiter,
 		redis:            redis,
 		store:            store,
 		mailer:           mailer,
@@ -121,6 +125,7 @@ func New(
 
 	muxSubrouter.Use(middlewares.RequestIdMiddleware)
 	muxSubrouter.Use(middlewares.LoggingMiddleware)
+	muxSubrouter.Use(h.RateLimiterMiddleware)
 
 	// Health Router
 	muxSubrouter.Path("/health").Methods("GET").HandlerFunc(h.handleHealth)
@@ -690,4 +695,19 @@ func (h *HttpHandlers) getUser(ctx context.Context, userId int64) (*entity.User,
 	}
 
 	return user, nil
+}
+
+func (h *HttpHandlers) RateLimiterMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.config.RateLimiter.Enabled {
+			ip := r.RemoteAddr
+
+			if allow, retryAfter := h.rateLimiter.Allow(ip); !allow {
+				json.RateLimitExceededResponse(w, r, retryAfter.String())
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

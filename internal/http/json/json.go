@@ -2,9 +2,11 @@ package json
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/k0kubun/pp"
 )
 
 var Validate *validator.Validate
@@ -48,4 +50,10 @@ func JsonResponse(w http.ResponseWriter, status int, data interface{}) error {
 	}
 
 	return WriteJson(w, status, &dto{Data: data})
+}
+
+func RateLimitExceededResponse(w http.ResponseWriter, r *http.Request, retryAfter string) {
+	pp.Println("rate limit exceeded", "method", r.Method, "path", r.URL.Path)
+	w.Header().Set("Retry-After", retryAfter)
+	WriteJsonError(w, http.StatusTooManyRequests, fmt.Sprintf("rate limit exceeded, try after: %s", retryAfter))
 }

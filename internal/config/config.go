@@ -9,10 +9,17 @@ import (
 )
 
 type Config struct {
-	Env        string `yaml:"env"`
-	HttpServer `yaml:"http_server"`
-	Database   `yaml:"database"`
-	Redis      `yaml:"redis"`
+	Env         string `yaml:"env"`
+	HttpServer  `yaml:"http_server"`
+	Database    `yaml:"database"`
+	Redis       `yaml:"redis"`
+	RateLimiter `yaml:"rate_limiter"`
+}
+
+type RateLimiter struct {
+	RequestsPerTimeFrame int           `yaml:"requests_per_time_frame"`
+	TimeFrame            time.Duration `yaml:"time_frame"`
+	Enabled              bool          `yaml:"enabled"`
 }
 
 type HttpServer struct {

@@ -8,6 +8,7 @@ import (
 	"social/internal/config"
 	handlers "social/internal/http"
 	"social/internal/mailer"
+	"social/internal/ratelimiter"
 	comments_service "social/internal/service/comments"
 	followers_service "social/internal/service/followers"
 	post_service "social/internal/service/posts"
@@ -61,7 +62,9 @@ func main() {
 
 	var store = sessions.NewCookieStore([]byte("MY_SESSION_KEY"))
 
-	handlers := handlers.New(redisStorage, store, mailer, logger, config, usersService, postsService, commentsService, followersService, rolesService)
+	rateLimiter := ratelimiter.NewFixedWindowRateLimiter(config.RateLimiter.RequestsPerTimeFrame, config.RateLimiter.TimeFrame)
+
+	handlers := handlers.New(rateLimiter, redisStorage, store, mailer, logger, config, usersService, postsService, commentsService, followersService, rolesService)
 
 	app := app.New(config, logger, handlers)
 
