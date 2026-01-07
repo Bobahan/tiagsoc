@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/Bobahan/tiagsoc/compare/v1.0.0...v1.1.0) (2026-01-07)
+
+
+### Features
+
+* add update version api action ([0ffbfc7](https://github.com/Bobahan/tiagsoc/commit/0ffbfc7663d1ae82e857b5b4991919de8d4c6a99))
+
 ## 1.0.0 (2026-01-07)
 
 
