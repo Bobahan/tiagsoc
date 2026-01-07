@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"social/internal/config"
 	"social/internal/dto"
 	"social/internal/entity"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/k0kubun/pp"
@@ -125,6 +127,20 @@ func New(
 
 	muxSubrouter.Use(middlewares.RequestIdMiddleware)
 	muxSubrouter.Use(middlewares.LoggingMiddleware)
+
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "http://localhost:3000"
+	}
+
+	handlers.CORS(
+		handlers.AllowedOrigins([]string{allowedOrigin}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
+		handlers.AllowedHeaders([]string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"}),
+		handlers.AllowCredentials(),
+		handlers.MaxAge(300),
+	)
+
 	muxSubrouter.Use(h.RateLimiterMiddleware)
 
 	// Health Router
