@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"expvar"
 	"os"
 	"os/signal"
+	"runtime"
 	"social/internal/app"
 	"social/internal/config"
 	handlers "social/internal/http"
@@ -65,6 +67,14 @@ func main() {
 	rateLimiter := ratelimiter.NewFixedWindowRateLimiter(config.RateLimiter.RequestsPerTimeFrame, config.RateLimiter.TimeFrame)
 
 	handlers := handlers.New(rateLimiter, redisStorage, store, mailer, logger, config, usersService, postsService, commentsService, followersService, rolesService)
+
+	expvar.Publish("database", expvar.Func(func() any {
+		return sql.Stats()
+	}))
+
+	expvar.Publish("goroutines", expvar.Func(func() any {
+		return runtime.NumGoroutine()
+	}))
 
 	app := app.New(config, logger, handlers)
 

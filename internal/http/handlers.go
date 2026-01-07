@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"expvar"
 	"fmt"
 	"net/http"
 	"os"
@@ -142,6 +143,8 @@ func New(
 	)
 
 	muxSubrouter.Use(h.RateLimiterMiddleware)
+
+	muxSubrouter.Path("/metrics").Methods("GET").HandlerFunc(expvar.Handler().ServeHTTP)
 
 	// Health Router
 	muxSubrouter.Path("/health").Methods("GET").HandlerFunc(h.handleHealth)
